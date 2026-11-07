@@ -1,0 +1,5 @@
+# Only what the build reads goes to the Docker daemon: the project's CMake files and sources. WebViewWindow is a separate build
+# context, copied in by name in the Dockerfile.
+**
+!CMakeLists.txt
+!src/**

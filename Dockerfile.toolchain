@@ -1,0 +1,10 @@
+# The compilers for Linux and mingw, in one image so builds reuse them instead of reinstalling.
+# build.sh tags it by a hash of this file, so it is rebuilt only when this file changes.
+FROM debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends cmake ninja-build pkg-config g++ mingw-w64 \
+ && x86_64-w64-mingw32-g++ --version \
+ && rm -rf /var/lib/apt/lists/*

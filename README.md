@@ -3,20 +3,24 @@
 Runs Discord's web client (`https://discord.com/app`) in a WebViewWindow window, instead of the Electron app. The repo
 contains none of Discord's code: the page is loaded from discord.com at run time.
 
-## Build (Linux)
+## Build
 
-Needs GTK 3, WebKitGTK 4.1, CMake 3.20+, Ninja and a C++20 compiler. The WebViewWindow checkout is expected next to this
-one (`../WebViewWindow`); point `WEBVIEW_WINDOW_DIR` at another checkout if it lives elsewhere.
+Needs Docker. The WebViewWindow checkout is expected next to this one (`../WebViewWindow`); point `WEBVIEW_WINDOW_DIR` at another
+checkout if it lives elsewhere.
 
-    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-    cmake --build build
-    ./build/discord_webview
+    ./build.sh [linux|windows|all]
+
+The builds run in Docker: `Dockerfile.toolchain` holds the compilers (GCC for Linux, MinGW-w64 for Windows), and `Dockerfile` builds
+the program. The results go to `bin/linux/release/` and `bin/windows/release/`. The Windows build needs `WebView2Loader.dll` beside
+the `.exe`, which the build copies there.
+
+CI (`.github/workflows/build.yml`) runs `build.sh all` on every push to `main` and on pull requests, and uploads `bin/` as an artifact.
 
 ## Known limitations
 
-- The window is undecorated (WebViewWindow always creates frameless windows on Linux). Move it with Alt+drag and close it with
-  Alt+F4.
-- Links that open a new window or tab do nothing: WebViewWindow has no new-window handling on Linux yet.
+- The window is undecorated (WebViewWindow always creates frameless windows on Linux). The page draws its own title bar: move the
+  window with its bar, and close it with its close button or Alt+F4.
+- Links to other sites open in the default browser. Links to discord.com load in the window.
 - Voice and video calls, notifications, tray icon and the Discord desktop-only features are not available. WebKitGTK's WebRTC
   support is limited.
 - Closing the window quits the program.
