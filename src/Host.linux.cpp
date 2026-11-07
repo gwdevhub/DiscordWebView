@@ -3,13 +3,16 @@
 
 #include <spawn.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <thread>
 
+#include "UpdateCheck.h"
 #include "WebViewWindow.h"
 
 extern char** environ;
@@ -39,4 +42,47 @@ void launchUrl(const std::string& url) {
             waitpid(pid, &status, 0);
         }).detach();
     }
+}
+
+std::optional<std::string> httpGet(const std::string& url) {
+    int fds[2];
+    if (pipe(fds) != 0) {
+        return std::nullopt;
+    }
+    // curl writes the body to the pipe, and fails on an HTTP error, so only a successful body comes back.
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO);
+    posix_spawn_file_actions_addclose(&actions, fds[0]);
+    posix_spawn_file_actions_addclose(&actions, fds[1]);
+    char* argv[] = {const_cast<char*>("curl"),
+                    const_cast<char*>("-sfL"),
+                    const_cast<char*>("--max-time"),
+                    const_cast<char*>("20"),
+                    const_cast<char*>("-H"),
+                    const_cast<char*>("Accept: application/vnd.github+json"),
+                    const_cast<char*>("-H"),
+                    const_cast<char*>("User-Agent: DiscordWebView"),
+                    const_cast<char*>(url.c_str()),
+                    nullptr};
+    pid_t pid = 0;
+    const int spawned = posix_spawnp(&pid, "curl", &actions, nullptr, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(fds[1]);
+    if (spawned != 0) {
+        close(fds[0]);
+        return std::nullopt;
+    }
+    std::string body;
+    char buffer[4096];
+    ssize_t count = 0;
+    while ((count = read(fds[0], buffer, sizeof buffer)) > 0) {
+        body.append(buffer, static_cast<std::size_t>(count));
+    }
+    close(fds[0]);
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        return std::nullopt;
+    }
+    return body;
 }

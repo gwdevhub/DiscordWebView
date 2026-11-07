@@ -5,6 +5,8 @@ FROM ${BUILDER_IMAGE} AS build
 
 ARG BUILDER_IMAGE
 ARG PLATFORMS="linux windows"
+# The commit count, which the release tags and the update check use. The container has no .git to count from.
+ARG BUILD_NUMBER=0
 
 WORKDIR /src
 COPY CMakeLists.txt ./
@@ -23,7 +25,7 @@ RUN --mount=type=cache,id=discordwebview-${BUILDER_IMAGE},target=/src/build,shar
     for platform in $PLATFORMS; do \
       toolchain=""; \
       if [ "$platform" = windows ]; then toolchain="-DCMAKE_TOOLCHAIN_FILE=/src/WebViewWindow/cmake/toolchains/mingw-w64.cmake"; fi; \
-      cmake -S . -B "build/$platform" -G Ninja -DCMAKE_BUILD_TYPE=Release -DWEBVIEW_WINDOW_DIR=/src/WebViewWindow $toolchain \
+      cmake -S . -B "build/$platform" -G Ninja -DCMAKE_BUILD_TYPE=Release -DWEBVIEW_WINDOW_DIR=/src/WebViewWindow -DDW_BUILD_NUMBER="$BUILD_NUMBER" $toolchain \
       && cmake --build "build/$platform" || exit 1; \
     done
 

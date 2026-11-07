@@ -34,6 +34,7 @@ fi
 
 docker build --target export --output "type=local,dest=$root/bin" \
     --build-arg BUILDER_IMAGE="$builder_image" --build-arg PLATFORMS="$platforms" \
+    --build-arg BUILD_NUMBER="$(git -C "$root" rev-list --count HEAD 2>/dev/null || echo 0)" \
     --build-context webview="$webview_window_dir" \
     -f "$root/Dockerfile" "$root"
 

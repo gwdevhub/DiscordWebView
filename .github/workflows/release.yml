@@ -1,0 +1,54 @@
+name: Release
+on:
+    push:
+        branches: [ "main" ]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    release:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        permissions:
+            contents: write
+        steps:
+            # The full history: the tag is the commit count, which the program's build number also uses.
+            -   name: Checkout
+                uses: actions/checkout@v7
+                with:
+                    fetch-depth: 0
+
+            -   name: Check out WebViewWindow
+                uses: actions/checkout@v7
+                with:
+                    repository: gwdevhub/WebViewWindow
+                    path: WebViewWindow
+
+            -   name: Version
+                id: version
+                run: echo "tag=r$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+            -   name: Build both targets in Docker
+                run: bash build.sh all
+                env:
+                    WEBVIEW_WINDOW_DIR: ${{ github.workspace }}/WebViewWindow
+
+            -   name: Stage the release files
+                run: |
+                    mkdir -p release
+                    cp bin/linux/release/discord_webview release/discord-webview-linux
+                    (cd bin/windows/release && zip -q "$GITHUB_WORKSPACE/release/discord-webview-windows.zip" discord_webview.exe WebView2Loader.dll)
+
+            -   name: Create the release
+                env:
+                    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    RELEASE_TAG: ${{ steps.version.outputs.tag }}
+                run: |
+                    gh release create "$RELEASE_TAG" \
+                        --target "$GITHUB_SHA" \
+                        --title "Release $RELEASE_TAG" \
+                        --generate-notes \
+                        release/discord-webview-linux \
+                        release/discord-webview-windows.zip

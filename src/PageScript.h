@@ -59,6 +59,20 @@ inline constexpr const char* kPageScript = R"JS(
   button('Close', 'M1.5 1.5l7 7M8.5 1.5l-7 7', 'close', 'gw-close');
   document.body.appendChild(bar);
 
+  // Adds a button to the bar that opens a newer release's page. The host calls it when a newer release exists, and again on each
+  // page load, since the bar is rebuilt with the page.
+  window.gwShowUpdate = href => {
+    if (document.getElementById('gw-update')) return;
+    const b = document.createElement('button');
+    b.id = 'gw-update';
+    b.type = 'button';
+    b.textContent = 'Update available';
+    b.title = 'Open the download page for the newer version';
+    b.style.cssText = 'width: auto; padding: 0 10px; color: #f0b232; font: 12px sans-serif;';
+    b.addEventListener('click', () => post('openExternal', [href]));
+    bar.insertBefore(b, bar.querySelector('button'));
+  };
+
   // Resize zones, numbered as the host's ResizeEdge: NW, N, NE, W, E, SW, S, SE. The top edge is the bar's, so only its corners.
   const zones = [
     [0, 'left:0;top:0;width:6px;height:6px;cursor:nwse-resize'],

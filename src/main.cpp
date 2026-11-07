@@ -2,13 +2,17 @@
 // discord.com at run time, and PageScript.h adds this program's title bar and link handling to it.
 
 #include <algorithm>
+#include <atomic>
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 
 #include "PageScript.h"
+#include "UpdateCheck.h"
 #include "WebViewWindow.h"
 
 // Opens a web address in the default browser. Each platform's host file defines it. The address is never run through a shell.
@@ -110,6 +114,12 @@ public:
     std::string devUrl() const override { return kDiscordUrl; }
     std::string title() const override { return "Discord"; }
 
+    // Shows the update button on the bar, now and after each page load. Called on the window's thread.
+    void showUpdate(const UpdateInfo& update) {
+        updateUrl_ = update.url;
+        runScript(updateScript());
+    }
+
     // Puts the window where it was last saved, at the size it had. Called once, after open. The library keeps the window inside
     // its monitor's work area, so a saved frame that's now off the screen is brought back in.
     void restoreFrame() {
@@ -122,8 +132,13 @@ public:
     }
 
 protected:
-    // Puts the title bar back on each page the window loads, including after navigations.
-    void onPageLoaded() override { runScript(kPageScript); }
+    // Puts the title bar back on each page the window loads, including after navigations, and the update button with it.
+    void onPageLoaded() override {
+        runScript(kPageScript);
+        if (!updateUrl_.empty()) {
+            runScript(updateScript());
+        }
+    }
     // Closing the only window ends the program.
     void onClosed() override { stopEventLoop(); }
     // Saves the frame after the user moves or resizes the window. Changes before restoreFrame are the window's own starting frame.
@@ -157,8 +172,14 @@ private:
         return options;
     }
 
+    // The script that adds the update button to the bar, for the address of the newer release.
+    std::string updateScript() const {
+        return "window.gwShowUpdate && window.gwShowUpdate(" + Json(updateUrl_).dump() + ");";
+    }
+
     bool frameRestored_ = false;
     std::optional<SavedFrame> lastSaved_;
+    std::string updateUrl_;
 };
 
 }  // namespace
@@ -170,7 +191,19 @@ int main() {
         DiscordWindow window;
         window.open();
         window.restoreFrame();
+        // Checks for a newer release in the background. The result comes back on the window's thread, and only while the window is
+        // still running: the flag is cleared before the window goes.
+        auto running = std::make_shared<std::atomic<bool>>(true);
+        std::thread([&window, running] {
+            const auto update = latestUpdate();
+            if (update) {
+                runOnUiThread([&window, running, update = *update] {
+                    if (*running) window.showUpdate(update);
+                });
+            }
+        }).detach();
         runEventLoop();
+        *running = false;
     } catch (const RuntimeMissingError&) {
         // The dialog has already said what's missing.
         return 1;
