@@ -102,9 +102,9 @@ inline constexpr const char* kPageScript = R"JS(
       e.stopPropagation();
       post('openExternal', [url.href]);
     } else if (anchor.target === '_blank') {
-      e.preventDefault();
-      e.stopPropagation();
-      location.assign(url.href);
+      // Same-site links stay in this window. The click isn't stopped, so Discord's own router still handles it and changes the
+      // channel without a page load.
+      anchor.removeAttribute('target');
     }
   }, true);
   window.open = (href, name, features) => {
