@@ -97,8 +97,9 @@ inline constexpr const char* kPageScript = R"JS(
   new MutationObserver(() => { title.textContent = document.title || 'Discord'; })
     .observe(document.head || document.documentElement, {subtree: true, childList: true, characterData: true});
 
-  // Web addresses on other sites open in the default browser. Addresses on Discord's own site load in this window, even when the
-  // page asks for a new one: this window is the app, so a new window would be a second copy of it.
+  // Only links that ask for a new window (target="_blank") are handled here. Web addresses on other sites open in the default browser.
+  // Addresses on Discord's own site load in this window, even when the page asks for a new one: this window is the app, so a new
+  // window would be a second copy of it. Every other link is left to the app.
   const webUrl = href => {
     try {
       const url = new URL(href, location.href);
@@ -109,13 +110,14 @@ inline constexpr const char* kPageScript = R"JS(
   document.addEventListener('click', e => {
     if (e.button !== 0) return;
     const anchor = e.target && e.target.closest ? e.target.closest('a[href]') : null;
-    const url = anchor && webUrl(anchor.href);
+    if (!anchor || anchor.target !== '_blank') return;
+    const url = webUrl(anchor.href);
     if (!url) return;
     if (url.hostname !== location.hostname) {
       e.preventDefault();
       e.stopPropagation();
       post('openExternal', [url.href]);
-    } else if (anchor.target === '_blank') {
+    } else {
       // Same-site links stay in this window. The click isn't stopped, so Discord's own router still handles it and changes the
       // channel without a page load.
       anchor.removeAttribute('target');
