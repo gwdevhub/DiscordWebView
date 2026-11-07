@@ -4,14 +4,17 @@
 
 inline constexpr const char* kPageScript = R"JS(
 (() => {
+  const install = () => {
   // The window starts on about:blank, which must not count as the page being ready.
   if (!/^https?:$/.test(location.protocol) || window.__gwDiscordFrame) return;
   window.__gwDiscordFrame = true;
 
   const BAR = 28;
+  // WebView2 (Windows) and WebKitGTK (Linux) expose the host under different names.
+  const bridge = () => (window.chrome && window.chrome.webview) || window.webkit.messageHandlers.host;
   const post = (method, args) => {
     try {
-      window.webkit.messageHandlers.host.postMessage(JSON.stringify({id: Date.now(), method, args}));
+      bridge().postMessage(JSON.stringify({id: Date.now(), method, args}));
     } catch (e) {}
   };
   window.hostReceive = window.hostReceive || (() => {});
@@ -143,5 +146,9 @@ inline constexpr const char* kPageScript = R"JS(
 
   // Tells the host the frame is in place: the window's onPageReady runs for it.
   post('ready', []);
+  };
+  // The page is injected as its navigation completes, and that can come before the document has a body to build the bar in.
+  if (document.body) install();
+  else document.addEventListener('DOMContentLoaded', install, {once: true});
 })();
 )JS";

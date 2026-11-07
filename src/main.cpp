@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 
+#include "LoadingPage.h"
 #include "PageScript.h"
 #include "UpdateCheck.h"
 #include "WebViewWindow.h"
@@ -111,7 +112,8 @@ public:
         });
     }
 
-    std::string devUrl() const override { return kDiscordUrl; }
+    // The window opens on the loading page, which moves on to Discord. A reload after the page's process died starts over the same way.
+    std::string html() const override { return loadingPage(Json(kDiscordUrl).dump()); }
     std::string title() const override { return "Discord"; }
 
     // Shows the update button on the bar, now and after each page load. Called on the window's thread.
