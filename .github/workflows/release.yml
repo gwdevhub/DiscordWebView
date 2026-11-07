@@ -39,7 +39,7 @@ jobs:
                 run: |
                     mkdir -p release
                     cp bin/linux/release/discord_webview release/discord-webview-linux
-                    (cd bin/windows/release && zip -q "$GITHUB_WORKSPACE/release/discord-webview-windows.zip" discord_webview.exe WebView2Loader.dll)
+                    cp bin/windows/release/discord_webview.exe release/discord-webview-windows.exe
 
             -   name: Create the release
                 env:
@@ -51,4 +51,4 @@ jobs:
                         --title "Release $RELEASE_TAG" \
                         --generate-notes \
                         release/discord-webview-linux \
-                        release/discord-webview-windows.zip
+                        release/discord-webview-windows.exe

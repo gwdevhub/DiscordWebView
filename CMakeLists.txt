@@ -43,9 +43,6 @@ set_target_properties(discord_webview PROPERTIES
 
 if(WIN32)
     target_link_options(discord_webview PRIVATE -static -mwindows)
-    # WebView2 is loaded at runtime from WebView2Loader.dll, which must sit beside the executable.
-    add_custom_command(TARGET discord_webview POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${WEBVIEW_WINDOW_DIR}/third_party/webview2/bin/x64/WebView2Loader.dll" "$<TARGET_FILE_DIR:discord_webview>"
-        VERBATIM)
+    # The program carries WebView2Loader.dll, which the library writes beside the executable at start: the release is the executable alone.
+    webview_window_embed_loader(discord_webview)
 endif()
