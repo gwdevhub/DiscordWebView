@@ -1,12 +1,14 @@
 // The desktop functions the host defines for the library on Linux. The pointer and the monitors' work areas come from the library
 // itself, which already loads GTK.
 
+#include <dlfcn.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -85,4 +87,80 @@ std::optional<std::string> httpGet(const std::string& url) {
         return std::nullopt;
     }
     return body;
+}
+
+// The graphics setup before the window opens. With the NVIDIA driver installed, EGL uses only that driver: loading Mesa's EGL as
+// well pulls Mesa's gallium and LLVM into the web process, about 50 MB of resident memory with no benefit on this machine.
+void configureGraphics() {
+    if (std::getenv("__EGL_VENDOR_LIBRARY_FILENAMES")) {
+        return;
+    }
+    const char* nvidiaVendor = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json";
+    if (!std::filesystem::exists(nvidiaVendor)) {
+        return;
+    }
+    // Only when the driver's library loads: otherwise EGL would have no driver at all.
+    if (void* driver = dlopen("libEGL_nvidia.so.0", RTLD_LAZY)) {
+        dlclose(driver);
+        setenv("__EGL_VENDOR_LIBRARY_FILENAMES", nvidiaVendor, 1);
+    }
+}
+
+namespace {
+
+// The WebKit functions the memory-pressure settings use. The library is already loaded by the time they're called.
+struct MemoryPressureApi {
+    void* (*web_context_get_default)() = nullptr;
+    void* (*web_context_get_website_data_manager)(void*) = nullptr;
+    void* (*settings_new)() = nullptr;
+    void (*settings_set_memory_limit)(void*, unsigned int) = nullptr;
+    void (*settings_set_conservative_threshold)(void*, double) = nullptr;
+    void (*settings_set_strict_threshold)(void*, double) = nullptr;
+    void (*settings_set_kill_threshold)(void*, double) = nullptr;
+    void (*settings_set_poll_interval)(void*, double) = nullptr;
+    void (*data_manager_set_settings)(void*, void*) = nullptr;
+    void (*settings_free)(void*) = nullptr;
+};
+
+template <typename Fn>
+bool bindSymbol(void* library, Fn& target, const char* name) {
+    target = reinterpret_cast<Fn>(dlsym(library, name));
+    return target != nullptr;
+}
+
+}  // namespace
+
+// Sets WebKit's memory-pressure thresholds for the web process, when DW_MEMORY_LIMIT_MB is set. Off by default; set for the test.
+void configureMemoryPressure() {
+    const char* limitText = std::getenv("DW_MEMORY_LIMIT_MB");
+    if (!limitText || !*limitText) {
+        return;
+    }
+    void* library = dlopen("libwebkit2gtk-4.1.so.0", RTLD_LAZY | RTLD_NOLOAD);
+    if (!library) {
+        return;
+    }
+    MemoryPressureApi api;
+    const bool bound = bindSymbol(library, api.web_context_get_default, "webkit_web_context_get_default") &&
+                       bindSymbol(library, api.web_context_get_website_data_manager, "webkit_web_context_get_website_data_manager") &&
+                       bindSymbol(library, api.settings_new, "webkit_memory_pressure_settings_new") &&
+                       bindSymbol(library, api.settings_set_memory_limit, "webkit_memory_pressure_settings_set_memory_limit") &&
+                       bindSymbol(library, api.settings_set_conservative_threshold, "webkit_memory_pressure_settings_set_conservative_threshold") &&
+                       bindSymbol(library, api.settings_set_strict_threshold, "webkit_memory_pressure_settings_set_strict_threshold") &&
+                       bindSymbol(library, api.settings_set_kill_threshold, "webkit_memory_pressure_settings_set_kill_threshold") &&
+                       bindSymbol(library, api.settings_set_poll_interval, "webkit_memory_pressure_settings_set_poll_interval") &&
+                       bindSymbol(library, api.data_manager_set_settings, "webkit_website_data_manager_set_memory_pressure_settings") &&
+                       bindSymbol(library, api.settings_free, "webkit_memory_pressure_settings_free");
+    if (bound) {
+        void* manager = api.web_context_get_website_data_manager(api.web_context_get_default());
+        void* settings = api.settings_new();
+        api.settings_set_memory_limit(settings, static_cast<unsigned int>(std::strtoul(limitText, nullptr, 10)));
+        api.settings_set_conservative_threshold(settings, 0.3);
+        api.settings_set_strict_threshold(settings, 0.5);
+        api.settings_set_kill_threshold(settings, 0.95);
+        api.settings_set_poll_interval(settings, 2.0);
+        api.data_manager_set_settings(manager, settings);
+        api.settings_free(settings);
+    }
+    dlclose(library);
 }

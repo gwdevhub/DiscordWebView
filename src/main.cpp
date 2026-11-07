@@ -21,6 +21,10 @@ void launchUrl(const std::string& url);
 // The folder the program keeps its settings in. Each platform's host file defines it.
 std::filesystem::path settingsFolder();
 
+// Graphics setup before the window opens, and the web process's memory-pressure thresholds once it has. Each host file defines them.
+void configureGraphics();
+void configureMemoryPressure();
+
 namespace {
 
 constexpr const char* kDiscordUrl = "https://discord.com/app";
@@ -187,9 +191,11 @@ private:
 int main() {
     try {
         setApplicationName("Discord");
+        configureGraphics();
         initializeWindowing();
         DiscordWindow window;
         window.open();
+        configureMemoryPressure();
         window.restoreFrame();
         // Checks for a newer release in the background. The result comes back on the window's thread, and only while the window is
         // still running: the flag is cleared before the window goes.

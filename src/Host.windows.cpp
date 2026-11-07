@@ -86,3 +86,7 @@ std::optional<std::string> httpGet(const std::string& url) {
     }
     return body;
 }
+
+// Windows has no EGL driver choice to make, and WebKit's memory-pressure thresholds are only tuned on Linux for now.
+void configureGraphics() {}
+void configureMemoryPressure() {}
