@@ -5,8 +5,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 
 #include "UpdateCheck.h"
 #include "WebViewWindow.h"
@@ -85,4 +88,77 @@ std::optional<std::string> httpGet(const std::string& url) {
         return std::nullopt;
     }
     return body;
+}
+
+const char* releaseAssetName() {
+    return "discord-webview-windows.exe";
+}
+
+std::filesystem::path currentExecutable() {
+    wchar_t path[MAX_PATH * 4];
+    const DWORD length = GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)));
+    if (length == 0 || length >= std::size(path)) {
+        return {};
+    }
+    return std::filesystem::path(std::wstring(path, length));
+}
+
+bool downloadTo(const std::string& url, const std::filesystem::path& dest) {
+    // curl.exe ships with Windows 10 1803 and later. It's started without a console, as httpGet does.
+    std::wstring command = L"curl.exe -sfL --max-time 600 -o \"" + dest.wstring() + L"\" \"" + toWide(url) + L"\"";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    const BOOL started = CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr,
+                                        &startup, &process);
+    bool ok = false;
+    if (started) {
+        WaitForSingleObject(process.hProcess, INFINITE);
+        DWORD exitCode = 1;
+        GetExitCodeProcess(process.hProcess, &exitCode);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        ok = exitCode == 0;
+    }
+    if (!ok) {
+        std::error_code error;
+        std::filesystem::remove(dest, error);
+    }
+    return ok;
+}
+
+void replaceExecutable(const std::filesystem::path& current, const std::filesystem::path& staged) {
+    namespace fs = std::filesystem;
+    // Windows locks a running exe against deleting, but not against renaming, so the running one is renamed aside.
+    const fs::path old = current.parent_path() / ".old.exe";
+    std::error_code error;
+    fs::remove(old, error);
+    fs::rename(current, old, error);
+    if (error) {
+        fs::remove(staged, error);
+        throw std::runtime_error("The program couldn't be moved aside for the update: " + error.message());
+    }
+    fs::rename(staged, current, error);
+    if (error) {
+        std::error_code restore;
+        fs::rename(old, current, restore);
+        fs::remove(staged, restore);
+        throw std::runtime_error("The update couldn't be put in place: " + error.message());
+    }
+}
+
+void restartProgram(const std::filesystem::path& program) {
+    std::wstring command = L"\"" + program.wstring() + L"\"";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process)) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+    }
+}
+
+void removeUpdateLeftovers(const std::filesystem::path& current) {
+    std::error_code error;
+    std::filesystem::remove(current.parent_path() / ".old.exe", error);
 }

@@ -9,8 +9,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <thread>
+#include <vector>
 
 #include "UpdateCheck.h"
 #include "WebViewWindow.h"
@@ -85,4 +88,88 @@ std::optional<std::string> httpGet(const std::string& url) {
         return std::nullopt;
     }
     return body;
+}
+
+const char* releaseAssetName() {
+    return "discord-webview-linux";
+}
+
+std::filesystem::path currentExecutable() {
+    std::error_code error;
+    const auto self = std::filesystem::read_symlink("/proc/self/exe", error);
+    return error ? std::filesystem::path() : self;
+}
+
+namespace {
+
+// Runs a program and waits for it. False when it can't start or exits with an error.
+bool runAndWait(const std::vector<std::string>& arguments) {
+    std::vector<char*> argv;
+    for (const std::string& argument : arguments) {
+        argv.push_back(const_cast<char*>(argument.c_str()));
+    }
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    if (posix_spawnp(&pid, argv[0], nullptr, nullptr, argv.data(), environ) != 0) {
+        return false;
+    }
+    int status = 0;
+    return waitpid(pid, &status, 0) >= 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+}  // namespace
+
+bool downloadTo(const std::string& url, const std::filesystem::path& dest) {
+    const std::string target = dest.string();
+    if (runAndWait({"curl", "-sfL", "--max-time", "600", "-o", target, url})) {
+        return true;
+    }
+    std::error_code error;
+    std::filesystem::remove(dest, error);
+    return false;
+}
+
+void replaceExecutable(const std::filesystem::path& current, const std::filesystem::path& staged) {
+    namespace fs = std::filesystem;
+    const fs::path old = current.parent_path() / (".old-" + current.filename().string());
+    std::error_code error;
+    fs::permissions(staged,
+                    fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec | fs::perms::others_read | fs::perms::others_exec,
+                    fs::perm_options::replace, error);
+    if (error) {
+        fs::remove(staged, error);
+        throw std::runtime_error("The update couldn't be made runnable: " + error.message());
+    }
+    // The running program is moved aside rather than overwritten, so a failed swap can be undone.
+    fs::remove(old, error);
+    fs::rename(current, old, error);
+    if (error) {
+        fs::remove(staged, error);
+        throw std::runtime_error("The program couldn't be moved aside for the update: " + error.message());
+    }
+    fs::rename(staged, current, error);
+    if (error) {
+        std::error_code restore;
+        fs::rename(old, current, restore);
+        fs::remove(staged, restore);
+        throw std::runtime_error("The update couldn't be put in place: " + error.message());
+    }
+}
+
+void restartProgram(const std::filesystem::path& program) {
+    const std::string path = program.string();
+    char* argv[] = {const_cast<char*>(path.c_str()), nullptr};
+    pid_t pid = 0;
+    if (posix_spawn(&pid, path.c_str(), nullptr, nullptr, argv, environ) == 0) {
+        // Reaped off the UI thread, so the new copy isn't left a zombie if this one keeps running for a moment.
+        std::thread([pid] {
+            int status = 0;
+            waitpid(pid, &status, 0);
+        }).detach();
+    }
+}
+
+void removeUpdateLeftovers(const std::filesystem::path& current) {
+    std::error_code error;
+    std::filesystem::remove(current.parent_path() / (".old-" + current.filename().string()), error);
 }

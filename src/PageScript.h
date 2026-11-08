@@ -45,6 +45,12 @@ inline constexpr const char* kPageScript = R"JS(
     #gw-overlay p { margin: 10px 0 0; font-size: 13px; line-height: 1.4; color: #b5bac1; }
     #gw-overlay .gw-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
     #gw-overlay .gw-actions button { padding: 8px 18px; border: 0; border-radius: 3px; background: #5865f2; color: #fff; cursor: pointer; }
+    #gw-overlay .gw-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid #3f4147; }
+    #gw-overlay h3 { margin: 0 0 8px; font-size: 14px; color: #f2f3f5; }
+    #gw-overlay .gw-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    #gw-overlay .gw-buttons button { padding: 8px 14px; border: 0; border-radius: 3px; background: #4e5058; color: #fff; cursor: pointer; }
+    #gw-overlay .gw-buttons #gw-update-now { background: #5865f2; }
+    #gw-overlay button:disabled { opacity: 0.5; cursor: default; }
   `;
   document.documentElement.appendChild(style);
 
@@ -73,8 +79,8 @@ inline constexpr const char* kPageScript = R"JS(
   const behaviour = document.createElement('button');
   behaviour.type = 'button';
   behaviour.id = 'gw-behaviour';
-  behaviour.setAttribute('aria-label', 'Window behaviour');
-  behaviour.title = 'Window behaviour';
+  behaviour.setAttribute('aria-label', 'Settings');
+  behaviour.title = 'Settings';
   behaviour.innerHTML = '<svg viewBox="0 0 10 10"><path d="M1.5 1.5h7v5h-7z M1 8.5h8"/></svg>';
   bar.appendChild(behaviour);
   button('Minimise', 'M1 5.5h8', 'minimize');
@@ -82,28 +88,45 @@ inline constexpr const char* kPageScript = R"JS(
   button('Close', 'M1.5 1.5l7 7M8.5 1.5l-7 7', 'close', 'gw-close');
   document.body.appendChild(bar);
 
-  // The window behaviour dialog. Ticked, minimising keeps the window in the taskbar; unticked, it hides the window to the system tray.
+  // The settings dialog. Window: ticked, minimising keeps the window in the taskbar; unticked, it hides the window to the system tray.
+  // Updates: the host reports the state, and asks for a check or an update through the buttons.
   const overlay = document.createElement('div');
   overlay.id = 'gw-overlay';
   overlay.className = 'gw-hidden';
-  overlay.innerHTML = '<div class="gw-dialog" role="dialog" aria-modal="true" aria-labelledby="gw-behaviour-title">' +
-    '<h2 id="gw-behaviour-title">Window behaviour</h2>' +
-    '<label class="gw-option"><input type="checkbox" id="gw-taskbar"> Keep in the taskbar when minimised</label>' +
-    '<p id="gw-behaviour-note"></p>' +
-    '<div class="gw-actions"><button type="button" id="gw-behaviour-done">Done</button></div>' +
+  overlay.innerHTML = '<div class="gw-dialog" role="dialog" aria-modal="true" aria-labelledby="gw-settings-title">' +
+    '<h2 id="gw-settings-title">Settings</h2>' +
+    '<div class="gw-section">' +
+      '<h3>Window</h3>' +
+      '<label class="gw-option"><input type="checkbox" id="gw-taskbar"> Keep in the taskbar when minimised</label>' +
+      '<p id="gw-behaviour-note"></p>' +
+    '</div>' +
+    '<div class="gw-section">' +
+      '<h3>Updates</h3>' +
+      '<p id="gw-update-status"></p>' +
+      '<div class="gw-buttons">' +
+        '<button type="button" id="gw-check-update">Check for update</button>' +
+        '<button type="button" id="gw-update-now" hidden>Update now</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gw-actions"><button type="button" id="gw-settings-done">Done</button></div>' +
     '</div>';
   document.body.appendChild(overlay);
   const taskbar = overlay.querySelector('#gw-taskbar');
   const note = overlay.querySelector('#gw-behaviour-note');
-  const openBehaviour = () => { overlay.classList.remove('gw-hidden'); taskbar.focus(); };
-  const closeBehaviour = () => overlay.classList.add('gw-hidden');
-  behaviour.addEventListener('click', openBehaviour);
-  overlay.querySelector('#gw-behaviour-done').addEventListener('click', closeBehaviour);
-  overlay.addEventListener('click', e => { if (e.target === overlay) closeBehaviour(); });
+  const status = overlay.querySelector('#gw-update-status');
+  const checkButton = overlay.querySelector('#gw-check-update');
+  const updateNowButton = overlay.querySelector('#gw-update-now');
+  const openSettings = () => { overlay.classList.remove('gw-hidden'); taskbar.focus(); };
+  const closeSettings = () => overlay.classList.add('gw-hidden');
+  behaviour.addEventListener('click', openSettings);
+  overlay.querySelector('#gw-settings-done').addEventListener('click', closeSettings);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeSettings(); });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !overlay.classList.contains('gw-hidden')) closeBehaviour();
+    if (e.key === 'Escape' && !overlay.classList.contains('gw-hidden')) closeSettings();
   });
   taskbar.addEventListener('change', () => post('setTaskbarWhenMinimised', [taskbar.checked]));
+  checkButton.addEventListener('click', () => post('checkForUpdate', []));
+  updateNowButton.addEventListener('click', () => post('updateNow', []));
   // The host calls this on each page load with the saved choice, and whether a tray icon is available on this platform.
   window.gwSetBehaviour = (keepInTaskbar, trayAvailable) => {
     taskbar.checked = !!keepInTaskbar;
@@ -112,19 +135,28 @@ inline constexpr const char* kPageScript = R"JS(
       ? 'When this is unticked, minimising hides the window to the system tray. Click its icon to bring the window back.'
       : 'The system tray isn\'t available on this platform yet, so minimising always uses the taskbar.';
   };
-
-  // Adds a button to the bar that opens a newer release's page. The host calls it when a newer release exists, and again on each
-  // page load, since the bar is rebuilt with the page.
-  window.gwShowUpdate = href => {
-    if (document.getElementById('gw-update')) return;
-    const b = document.createElement('button');
-    b.id = 'gw-update';
-    b.type = 'button';
-    b.textContent = 'Update available';
-    b.title = 'Open the download page for the newer version';
-    b.style.cssText = 'width: auto; padding: 0 10px; color: #f0b232; font: 12px sans-serif;';
-    b.addEventListener('click', () => post('openExternal', [href]));
-    bar.insertBefore(b, bar.querySelector('button'));
+  // The host calls this with the update state: the stage, a message, and whether a newer release is known. The bar's notice shows
+  // while one is known, and opens the settings dialog.
+  window.gwSetUpdateState = state => {
+    const s = state || {};
+    status.textContent = s.message || '';
+    const busy = s.stage === 'checking' || s.stage === 'downloading';
+    checkButton.disabled = busy;
+    updateNowButton.hidden = !s.available;
+    updateNowButton.disabled = busy;
+    const notice = document.getElementById('gw-update');
+    if (s.available && !notice) {
+      const b = document.createElement('button');
+      b.id = 'gw-update';
+      b.type = 'button';
+      b.textContent = 'Update available';
+      b.title = 'Open settings to update';
+      b.style.cssText = 'width: auto; padding: 0 10px; color: #f0b232; font: 12px sans-serif;';
+      b.addEventListener('click', openSettings);
+      bar.insertBefore(b, bar.querySelector('button'));
+    } else if (!s.available && notice) {
+      notice.remove();
+    }
   };
 
   // Keeps the bar's title in step with the page's.

@@ -33,7 +33,7 @@ if(NOT DEFINED DW_BUILD_NUMBER)
 endif()
 message(STATUS "Build number: ${DW_BUILD_NUMBER}")
 
-add_executable(discord_webview src/main.cpp src/UpdateCheck.cpp ${DW_HOST})
+add_executable(discord_webview src/main.cpp src/Sha256.cpp src/UpdateCheck.cpp ${DW_HOST})
 target_link_libraries(discord_webview PRIVATE webview_window)
 target_compile_definitions(discord_webview PRIVATE DW_BUILD_NUMBER=${DW_BUILD_NUMBER})
 
