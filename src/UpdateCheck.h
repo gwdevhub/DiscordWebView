@@ -2,6 +2,7 @@
 // carries as r<count>, so a release is newer when its count is higher than this build's.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -36,8 +37,9 @@ std::optional<std::string> httpGet(const std::string& url);
 const char* releaseAssetName();
 // The running program, which an update replaces. Each platform's host file defines it.
 std::filesystem::path currentExecutable();
-// Downloads a URL to dest. Each platform's host file defines it. False when the download fails, and dest is then removed.
-bool downloadTo(const std::string& url, const std::filesystem::path& dest);
+// Downloads a URL to dest, stopping the download when cancel is set. Each platform's host file defines it. False when the download
+// fails or is cancelled, and dest is then removed.
+bool downloadTo(const std::string& url, const std::filesystem::path& dest, const std::atomic<bool>& cancel);
 // Puts the staged file in place of the running program. The old program is kept beside it until the swap has worked. Throws
 // std::runtime_error with the reason when it fails. Each platform's host file defines it.
 void replaceExecutable(const std::filesystem::path& current, const std::filesystem::path& staged);

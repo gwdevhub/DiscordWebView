@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -103,7 +104,7 @@ std::filesystem::path currentExecutable() {
     return std::filesystem::path(std::wstring(path, length));
 }
 
-bool downloadTo(const std::string& url, const std::filesystem::path& dest) {
+bool downloadTo(const std::string& url, const std::filesystem::path& dest, const std::atomic<bool>& cancel) {
     // curl.exe ships with Windows 10 1803 and later. It's started without a console, as httpGet does.
     std::wstring command = L"curl.exe -sfL --max-time 600 -o \"" + dest.wstring() + L"\" \"" + toWide(url) + L"\"";
     STARTUPINFOW startup{};
@@ -113,12 +114,26 @@ bool downloadTo(const std::string& url, const std::filesystem::path& dest) {
                                         &startup, &process);
     bool ok = false;
     if (started) {
-        WaitForSingleObject(process.hProcess, INFINITE);
-        DWORD exitCode = 1;
-        GetExitCodeProcess(process.hProcess, &exitCode);
+        // The child is polled, so a cancel stops the download part way through rather than when it finishes.
+        for (;;) {
+            const DWORD wait = WaitForSingleObject(process.hProcess, 100);
+            if (wait == WAIT_OBJECT_0) {
+                DWORD exitCode = 1;
+                GetExitCodeProcess(process.hProcess, &exitCode);
+                ok = exitCode == 0;
+                break;
+            }
+            if (wait != WAIT_TIMEOUT) {
+                break;
+            }
+            if (cancel.load()) {
+                TerminateProcess(process.hProcess, 1);
+                WaitForSingleObject(process.hProcess, INFINITE);
+                break;
+            }
+        }
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
-        ok = exitCode == 0;
     }
     if (!ok) {
         std::error_code error;

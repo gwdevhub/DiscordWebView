@@ -5,6 +5,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <chrono>
+#include <csignal>
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -100,33 +104,41 @@ std::filesystem::path currentExecutable() {
     return error ? std::filesystem::path() : self;
 }
 
-namespace {
-
-// Runs a program and waits for it. False when it can't start or exits with an error.
-bool runAndWait(const std::vector<std::string>& arguments) {
+bool downloadTo(const std::string& url, const std::filesystem::path& dest, const std::atomic<bool>& cancel) {
+    const std::string target = dest.string();
+    std::vector<std::string> arguments{"curl", "-sfL", "--max-time", "600", "-o", target, url};
     std::vector<char*> argv;
     for (const std::string& argument : arguments) {
         argv.push_back(const_cast<char*>(argument.c_str()));
     }
     argv.push_back(nullptr);
     pid_t pid = 0;
-    if (posix_spawnp(&pid, argv[0], nullptr, nullptr, argv.data(), environ) != 0) {
-        return false;
+    bool ok = false;
+    if (posix_spawnp(&pid, argv[0], nullptr, nullptr, argv.data(), environ) == 0) {
+        // The child is polled, so a cancel stops the download part way through rather than when it finishes.
+        for (;;) {
+            int status = 0;
+            const pid_t finished = waitpid(pid, &status, WNOHANG);
+            if (finished == pid) {
+                ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+                break;
+            }
+            if (finished < 0) {
+                break;
+            }
+            if (cancel.load()) {
+                kill(pid, SIGTERM);
+                waitpid(pid, &status, 0);
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
     }
-    int status = 0;
-    return waitpid(pid, &status, 0) >= 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
-}
-
-}  // namespace
-
-bool downloadTo(const std::string& url, const std::filesystem::path& dest) {
-    const std::string target = dest.string();
-    if (runAndWait({"curl", "-sfL", "--max-time", "600", "-o", target, url})) {
-        return true;
+    if (!ok) {
+        std::error_code error;
+        std::filesystem::remove(dest, error);
     }
-    std::error_code error;
-    std::filesystem::remove(dest, error);
-    return false;
+    return ok;
 }
 
 void replaceExecutable(const std::filesystem::path& current, const std::filesystem::path& staged) {

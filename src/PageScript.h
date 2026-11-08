@@ -33,24 +33,6 @@ inline constexpr const char* kPageScript = R"JS(
     #gw-titlebar button:hover { background: #35373c; }
     #gw-titlebar button.gw-close:hover { background: #da373c; color: #fff; }
     #gw-titlebar svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1; }
-    #gw-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 2147483646; display: flex; align-items: center;
-      justify-content: center; background: rgba(0, 0, 0, 0.6); font: 14px sans-serif; color: #dbdee1; }
-    #gw-overlay.gw-hidden { display: none; }
-    #gw-overlay .gw-dialog { width: 380px; max-width: calc(100vw - 32px); padding: 20px 24px; border-radius: 6px; background: #313338;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
-    #gw-overlay h2 { margin: 0 0 14px; font-size: 18px; color: #f2f3f5; }
-    #gw-overlay .gw-option { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-    #gw-overlay .gw-option input:disabled { cursor: default; }
-    #gw-overlay .gw-option:has(input:disabled) { color: #80848e; cursor: default; }
-    #gw-overlay p { margin: 10px 0 0; font-size: 13px; line-height: 1.4; color: #b5bac1; }
-    #gw-overlay .gw-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
-    #gw-overlay .gw-actions button { padding: 8px 18px; border: 0; border-radius: 3px; background: #5865f2; color: #fff; cursor: pointer; }
-    #gw-overlay .gw-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid #3f4147; }
-    #gw-overlay h3 { margin: 0 0 8px; font-size: 14px; color: #f2f3f5; }
-    #gw-overlay .gw-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    #gw-overlay .gw-buttons button { padding: 8px 14px; border: 0; border-radius: 3px; background: #4e5058; color: #fff; cursor: pointer; }
-    #gw-overlay .gw-buttons #gw-update-now { background: #5865f2; }
-    #gw-overlay button:disabled { opacity: 0.5; cursor: default; }
   `;
   document.documentElement.appendChild(style);
 
@@ -88,73 +70,21 @@ inline constexpr const char* kPageScript = R"JS(
   button('Close', 'M1.5 1.5l7 7M8.5 1.5l-7 7', 'close', 'gw-close');
   document.body.appendChild(bar);
 
-  // The settings dialog. Window: ticked, minimising keeps the window in the taskbar; unticked, it hides the window to the system tray.
-  // Updates: the host reports the state, and asks for a check or an update through the buttons.
-  const overlay = document.createElement('div');
-  overlay.id = 'gw-overlay';
-  overlay.className = 'gw-hidden';
-  overlay.innerHTML = '<div class="gw-dialog" role="dialog" aria-modal="true" aria-labelledby="gw-settings-title">' +
-    '<h2 id="gw-settings-title">Settings</h2>' +
-    '<div class="gw-section">' +
-      '<h3>Window</h3>' +
-      '<label class="gw-option"><input type="checkbox" id="gw-taskbar"> Keep in the taskbar when minimised</label>' +
-      '<p id="gw-behaviour-note"></p>' +
-    '</div>' +
-    '<div class="gw-section">' +
-      '<h3>Updates</h3>' +
-      '<p id="gw-update-status"></p>' +
-      '<div class="gw-buttons">' +
-        '<button type="button" id="gw-check-update">Check for update</button>' +
-        '<button type="button" id="gw-update-now" hidden>Update now</button>' +
-      '</div>' +
-    '</div>' +
-    '<div class="gw-actions"><button type="button" id="gw-settings-done">Done</button></div>' +
-    '</div>';
-  document.body.appendChild(overlay);
-  const taskbar = overlay.querySelector('#gw-taskbar');
-  const note = overlay.querySelector('#gw-behaviour-note');
-  const status = overlay.querySelector('#gw-update-status');
-  const checkButton = overlay.querySelector('#gw-check-update');
-  const updateNowButton = overlay.querySelector('#gw-update-now');
-  const openSettings = () => { overlay.classList.remove('gw-hidden'); taskbar.focus(); };
-  const closeSettings = () => overlay.classList.add('gw-hidden');
-  behaviour.addEventListener('click', openSettings);
-  overlay.querySelector('#gw-settings-done').addEventListener('click', closeSettings);
-  overlay.addEventListener('click', e => { if (e.target === overlay) closeSettings(); });
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !overlay.classList.contains('gw-hidden')) closeSettings();
-  });
-  taskbar.addEventListener('change', () => post('setTaskbarWhenMinimised', [taskbar.checked]));
-  checkButton.addEventListener('click', () => post('checkForUpdate', []));
-  updateNowButton.addEventListener('click', () => post('updateNow', []));
-  // The host calls this on each page load with the saved choice, and whether a tray icon is available on this platform.
-  window.gwSetBehaviour = (keepInTaskbar, trayAvailable) => {
-    taskbar.checked = !!keepInTaskbar;
-    taskbar.disabled = !trayAvailable;
-    note.textContent = trayAvailable
-      ? 'When this is unticked, minimising hides the window to the system tray. Click its icon to bring the window back.'
-      : 'The system tray isn\'t available on this platform yet, so minimising always uses the taskbar.';
-  };
-  // The host calls this with the update state: the stage, a message, and whether a newer release is known. The bar's notice shows
-  // while one is known, and opens the settings dialog.
-  window.gwSetUpdateState = state => {
-    const s = state || {};
-    status.textContent = s.message || '';
-    const busy = s.stage === 'checking' || s.stage === 'downloading';
-    checkButton.disabled = busy;
-    updateNowButton.hidden = !s.available;
-    updateNowButton.disabled = busy;
+  // The settings button and the update notice open the settings window, which the host runs.
+  behaviour.addEventListener('click', () => post('openSettings', []));
+  // The host says whether a newer release is known. The notice is a button on the bar that opens the settings window.
+  window.gwSetUpdateNotice = available => {
     const notice = document.getElementById('gw-update');
-    if (s.available && !notice) {
+    if (available && !notice) {
       const b = document.createElement('button');
       b.id = 'gw-update';
       b.type = 'button';
       b.textContent = 'Update available';
       b.title = 'Open settings to update';
       b.style.cssText = 'width: auto; padding: 0 10px; color: #f0b232; font: 12px sans-serif;';
-      b.addEventListener('click', openSettings);
+      b.addEventListener('click', () => post('openSettings', []));
       bar.insertBefore(b, bar.querySelector('button'));
-    } else if (!s.available && notice) {
+    } else if (!available && notice) {
       notice.remove();
     }
   };
@@ -208,7 +138,30 @@ inline constexpr const char* kPageScript = R"JS(
   }, true);
 
   // Tells the host the frame is in place: the window's onPageReady runs for it.
-  post('ready', []);
+  // The window is shown when the page is ready. Discord draws its app into #app-mount after its scripts run, so that's the signal, with a
+  // limit so a page that never draws doesn't hold the window back.
+  let reported = false;
+  const reportReady = () => {
+    if (reported) return;
+    reported = true;
+    post('ready', []);
+  };
+  const mountDrawn = () => {
+    const mount = document.getElementById('app-mount');
+    return !!mount && mount.children.length > 0;
+  };
+  if (mountDrawn()) {
+    reportReady();
+  } else {
+    const drawn = new MutationObserver(() => {
+      if (mountDrawn()) {
+        drawn.disconnect();
+        reportReady();
+      }
+    });
+    drawn.observe(document.documentElement, {childList: true, subtree: true});
+    setTimeout(reportReady, 30000);
+  }
   };
   // The page is injected as its navigation completes, and that can come before the document has a body to build the bar in.
   if (document.body) install();
