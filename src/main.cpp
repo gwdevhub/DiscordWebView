@@ -83,13 +83,6 @@ public:
             window.beginMove();
             reply.result(nullptr);
         });
-        methods.on("resizeDrag", [](WebViewWindow& window, const Json& args, const Reply& reply) {
-            const int edge = args.at(0).get<int>();
-            if (edge >= 0 && edge <= static_cast<int>(ResizeEdge::SouthEast)) {
-                window.beginResize(static_cast<ResizeEdge>(edge));
-            }
-            reply.result(nullptr);
-        });
         methods.on("minimize", [](WebViewWindow& window, const Json&, const Reply& reply) {
             window.minimize();
             reply.result(nullptr);
@@ -168,6 +161,8 @@ private:
         options.height = 800;
         options.minWidth = 480;
         options.minHeight = 360;
+        // The library draws the resize strips along the edges, so the page doesn't.
+        options.resizeEdges = true;
         // Discord's page is opaque, so there is nothing to see through.
         options.transparent = false;
         options.hardwareAcceleration = HardwareAcceleration::Always;

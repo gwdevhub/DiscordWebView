@@ -32,7 +32,6 @@ inline constexpr const char* kPageScript = R"JS(
     #gw-titlebar button:hover { background: #35373c; }
     #gw-titlebar button.gw-close:hover { background: #da373c; color: #fff; }
     #gw-titlebar svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1; }
-    .gw-edge { position: fixed; z-index: 2147483646; }
   `;
   document.documentElement.appendChild(style);
 
@@ -75,26 +74,6 @@ inline constexpr const char* kPageScript = R"JS(
     b.addEventListener('click', () => post('openExternal', [href]));
     bar.insertBefore(b, bar.querySelector('button'));
   };
-
-  // Resize zones, numbered as the host's ResizeEdge: NW, N, NE, W, E, SW, S, SE. The top edge is the bar's, so only its corners.
-  const zones = [
-    [0, 'left:0;top:0;width:6px;height:6px;cursor:nwse-resize'],
-    [2, 'right:0;top:0;width:6px;height:6px;cursor:nesw-resize'],
-    [3, 'left:0;top:6px;bottom:6px;width:6px;cursor:ew-resize'],
-    [4, 'right:0;top:6px;bottom:6px;width:6px;cursor:ew-resize'],
-    [5, 'left:0;bottom:0;width:6px;height:6px;cursor:nesw-resize'],
-    [6, 'left:6px;right:6px;bottom:0;height:6px;cursor:ns-resize'],
-    [7, 'right:0;bottom:0;width:6px;height:6px;cursor:nwse-resize'],
-  ];
-  for (const [edge, place] of zones) {
-    const z = document.createElement('div');
-    z.className = 'gw-edge';
-    z.style.cssText = place;
-    z.addEventListener('mousedown', e => {
-      if (e.button === 0) post('resizeDrag', [edge]);
-    });
-    document.body.appendChild(z);
-  }
 
   // Keeps the bar's title in step with the page's.
   new MutationObserver(() => { title.textContent = document.title || 'Discord'; })
