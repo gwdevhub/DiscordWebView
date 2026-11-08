@@ -8,6 +8,7 @@
 #include "Application.h"
 #include "Host.h"
 #include "PageScript.h"
+#include "Downloads.h"
 #include "PagePermissions.h"
 
 namespace {
@@ -47,6 +48,17 @@ DiscordWindow::DiscordWindow(Application& app) : WebViewWindow(WindowOptions{
                                                      .hardwareAcceleration = HardwareAcceleration::Always,
                                                  }),
                                                  app_(app) {
+    // Downloads are saved to the Downloads folder, under the name the page suggests, and never over a file already there.
+    setDownloadChooser([](const std::string& name) -> std::optional<std::filesystem::path> {
+        const std::filesystem::path folder = downloadsFolder();
+        try {
+            std::filesystem::create_directories(folder);
+        } catch (const std::exception&) {
+            // Without the folder the platform's default is used.
+            return std::nullopt;
+        }
+        return uniqueDownloadPath(folder, name);
+    });
     auto& methods = handler();
     methods.on("moveDrag", [](WebViewWindow& window, const Json&, const Reply& reply) {
         window.beginMove();
