@@ -4,14 +4,17 @@
 
 inline constexpr const char* kPageScript = R"JS(
 (() => {
+  const install = () => {
   // The window starts on about:blank, which must not count as the page being ready.
   if (!/^https?:$/.test(location.protocol) || window.__gwDiscordFrame) return;
   window.__gwDiscordFrame = true;
 
   const BAR = 28;
+  // WebView2 (Windows) and WebKitGTK (Linux) expose the host under different names.
+  const bridge = () => (window.chrome && window.chrome.webview) || window.webkit.messageHandlers.host;
   const post = (method, args) => {
     try {
-      window.webkit.messageHandlers.host.postMessage(JSON.stringify({id: Date.now(), method, args}));
+      bridge().postMessage(JSON.stringify({id: Date.now(), method, args}));
     } catch (e) {}
   };
   window.hostReceive = window.hostReceive || (() => {});
@@ -21,7 +24,8 @@ inline constexpr const char* kPageScript = R"JS(
     html { height: 100%; }
     body { margin-top: ${BAR}px !important; height: calc(100vh - ${BAR}px) !important; overflow: hidden !important; }
     #app-mount { height: calc(100vh - ${BAR}px) !important; }
-    #gw-titlebar { position: fixed; top: 0; left: 0; right: 0; height: ${BAR}px; z-index: 2147483647; display: flex;
+    /* One below the library's resize strips (2147483647), so they stay on top of the bar's top edge. */
+    #gw-titlebar { position: fixed; top: 0; left: 0; right: 0; height: ${BAR}px; z-index: 2147483646; display: flex;
       align-items: stretch; background: #1e1f22; color: #dbdee1; font: 12px sans-serif; user-select: none; cursor: default; }
     #gw-titlebar .gw-title { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 10px; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis; }
@@ -29,7 +33,6 @@ inline constexpr const char* kPageScript = R"JS(
     #gw-titlebar button:hover { background: #35373c; }
     #gw-titlebar button.gw-close:hover { background: #da373c; color: #fff; }
     #gw-titlebar svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1; }
-    .gw-edge { position: fixed; z-index: 2147483646; }
   `;
   document.documentElement.appendChild(style);
 
@@ -54,44 +57,37 @@ inline constexpr const char* kPageScript = R"JS(
     b.addEventListener('click', () => post(method, []));
     bar.appendChild(b);
   };
+  // Opens the window behaviour dialog, which is built below.
+  const behaviour = document.createElement('button');
+  behaviour.type = 'button';
+  behaviour.id = 'gw-behaviour';
+  behaviour.setAttribute('aria-label', 'Settings');
+  behaviour.title = 'Settings';
+  behaviour.innerHTML = '<svg viewBox="0 0 10 10"><path d="M1.5 1.5h7v5h-7z M1 8.5h8"/></svg>';
+  bar.appendChild(behaviour);
   button('Minimise', 'M1 5.5h8', 'minimize');
   button('Maximise', 'M1.5 1.5h7v7h-7z', 'toggleMaximize');
   button('Close', 'M1.5 1.5l7 7M8.5 1.5l-7 7', 'close', 'gw-close');
   document.body.appendChild(bar);
 
-  // Adds a button to the bar that opens a newer release's page. The host calls it when a newer release exists, and again on each
-  // page load, since the bar is rebuilt with the page.
-  window.gwShowUpdate = href => {
-    if (document.getElementById('gw-update')) return;
-    const b = document.createElement('button');
-    b.id = 'gw-update';
-    b.type = 'button';
-    b.textContent = 'Update available';
-    b.title = 'Open the download page for the newer version';
-    b.style.cssText = 'width: auto; padding: 0 10px; color: #f0b232; font: 12px sans-serif;';
-    b.addEventListener('click', () => post('openExternal', [href]));
-    bar.insertBefore(b, bar.querySelector('button'));
+  // The settings button and the update notice open the settings window, which the host runs.
+  behaviour.addEventListener('click', () => post('openSettings', []));
+  // The host says whether a newer release is known. The notice is a button on the bar that opens the settings window.
+  window.gwSetUpdateNotice = available => {
+    const notice = document.getElementById('gw-update');
+    if (available && !notice) {
+      const b = document.createElement('button');
+      b.id = 'gw-update';
+      b.type = 'button';
+      b.textContent = 'Update available';
+      b.title = 'Open settings to update';
+      b.style.cssText = 'width: auto; padding: 0 10px; color: #f0b232; font: 12px sans-serif;';
+      b.addEventListener('click', () => post('openSettings', []));
+      bar.insertBefore(b, bar.querySelector('button'));
+    } else if (!available && notice) {
+      notice.remove();
+    }
   };
-
-  // Resize zones, numbered as the host's ResizeEdge: NW, N, NE, W, E, SW, S, SE. The top edge is the bar's, so only its corners.
-  const zones = [
-    [0, 'left:0;top:0;width:6px;height:6px;cursor:nwse-resize'],
-    [2, 'right:0;top:0;width:6px;height:6px;cursor:nesw-resize'],
-    [3, 'left:0;top:6px;bottom:6px;width:6px;cursor:ew-resize'],
-    [4, 'right:0;top:6px;bottom:6px;width:6px;cursor:ew-resize'],
-    [5, 'left:0;bottom:0;width:6px;height:6px;cursor:nesw-resize'],
-    [6, 'left:6px;right:6px;bottom:0;height:6px;cursor:ns-resize'],
-    [7, 'right:0;bottom:0;width:6px;height:6px;cursor:nwse-resize'],
-  ];
-  for (const [edge, place] of zones) {
-    const z = document.createElement('div');
-    z.className = 'gw-edge';
-    z.style.cssText = place;
-    z.addEventListener('mousedown', e => {
-      if (e.button === 0) post('resizeDrag', [edge]);
-    });
-    document.body.appendChild(z);
-  }
 
   // Keeps the bar's title in step with the page's.
   new MutationObserver(() => { title.textContent = document.title || 'Discord'; })
@@ -142,6 +138,33 @@ inline constexpr const char* kPageScript = R"JS(
   }, true);
 
   // Tells the host the frame is in place: the window's onPageReady runs for it.
-  post('ready', []);
+  // The window is shown when the page is ready. Discord draws its app into #app-mount after its scripts run, so that's the signal, with a
+  // limit so a page that never draws doesn't hold the window back.
+  let reported = false;
+  const reportReady = () => {
+    if (reported) return;
+    reported = true;
+    post('ready', []);
+  };
+  const mountDrawn = () => {
+    const mount = document.getElementById('app-mount');
+    return !!mount && mount.children.length > 0;
+  };
+  if (mountDrawn()) {
+    reportReady();
+  } else {
+    const drawn = new MutationObserver(() => {
+      if (mountDrawn()) {
+        drawn.disconnect();
+        reportReady();
+      }
+    });
+    drawn.observe(document.documentElement, {childList: true, subtree: true});
+    setTimeout(reportReady, 30000);
+  }
+  };
+  // The page is injected as its navigation completes, and that can come before the document has a body to build the bar in.
+  if (document.body) install();
+  else document.addEventListener('DOMContentLoaded', install, {once: true});
 })();
 )JS";

@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <exception>
+#include <stdexcept>
 
 #include "WebViewWindow.h"
 
@@ -26,26 +27,57 @@ std::optional<std::uint32_t> buildOfTag(const std::string& tag) {
 
 }  // namespace
 
-std::optional<UpdateInfo> latestUpdate() {
+std::optional<UpdateInfo> fetchUpdate() {
     // DISCORD_WEBVIEW_RELEASE_URL points the check at another release feed, for testing.
     const char* override = std::getenv("DISCORD_WEBVIEW_RELEASE_URL");
     const std::string url = override && *override ? override : kLatestReleaseUrl;
     const auto body = httpGet(url);
     if (!body) {
+        throw std::runtime_error("GitHub couldn't be reached.");
+    }
+    const Json release = Json::parse(*body, nullptr, false);
+    if (release.is_discarded() || !release.is_object()) {
+        throw std::runtime_error("GitHub returned no release.");
+    }
+    const auto build = buildOfTag(release.value("tag_name", std::string()));
+    if (!build) {
+        throw std::runtime_error("The latest release has no build number.");
+    }
+    if (*build <= kBuildNumber) {
         return std::nullopt;
     }
+    UpdateInfo info;
+    info.build = *build;
+    info.url = release.value("html_url", std::string());
+    if (info.url.rfind("https://", 0) != 0) {
+        throw std::runtime_error("The latest release has no page.");
+    }
+    if (release.contains("assets") && release["assets"].is_array()) {
+        for (const Json& asset : release["assets"]) {
+            if (asset.value("name", std::string()) != releaseAssetName()) {
+                continue;
+            }
+            const std::string digest = asset.value("digest", std::string());
+            const std::string prefix = "sha256:";
+            if (digest.compare(0, prefix.size(), prefix) != 0) {
+                throw std::runtime_error("GitHub gave no checksum for the update.");
+            }
+            info.download = asset.value("browser_download_url", std::string());
+            info.sha256 = digest.substr(prefix.size());
+            if (info.download.empty()) {
+                throw std::runtime_error("GitHub gave no download for the update.");
+            }
+            break;
+        }
+    }
+    return info;
+}
+
+std::optional<UpdateInfo> latestUpdate() {
     try {
-        const Json release = Json::parse(*body, nullptr, false);
-        if (release.is_discarded() || !release.is_object()) {
-            return std::nullopt;
-        }
-        const auto build = buildOfTag(release.value("tag_name", std::string()));
-        const std::string page = release.value("html_url", std::string());
-        if (!build || *build <= kBuildNumber || page.rfind("https://", 0) != 0) {
-            return std::nullopt;
-        }
-        return UpdateInfo{*build, page};
+        return fetchUpdate();
     } catch (const std::exception&) {
+        // The startup check is quiet: the settings dialog reports a failure when it's asked for.
         return std::nullopt;
     }
 }
