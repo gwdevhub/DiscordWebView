@@ -36,6 +36,7 @@ protected:
     void onPageReady() override;
     void onClosed() override;
     void onFrameChanged() override;
+    std::optional<bool> onPermissionRequest(PagePermission permission, const std::string& pageUrl) override;
 
 private:
     Application& app_;

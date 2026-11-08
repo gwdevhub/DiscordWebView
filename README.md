@@ -21,6 +21,6 @@ CI (`.github/workflows/build.yml`) runs `build.sh all` on every push to `main` a
 - The window is undecorated (WebViewWindow always creates frameless windows on Linux). The page draws its own title bar: move the
   window with its bar, and close it with its close button or Alt+F4.
 - Links to other sites open in the default browser. Links to discord.com load in the window.
-- Voice and video calls, notifications, tray icon and the Discord desktop-only features are not available. WebKitGTK's WebRTC
-  support is limited.
+- Voice and video calls don't work yet. Discord's desktop voice engine isn't available here, and the page gets the microphone,
+  camera and notifications only as a browser would. `docs/MISSING_FEATURES.md` lists what the desktop app has and this one lacks.
 - Closing the window quits the program.

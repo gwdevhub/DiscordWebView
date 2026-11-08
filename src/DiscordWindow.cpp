@@ -8,6 +8,7 @@
 #include "Application.h"
 #include "Host.h"
 #include "PageScript.h"
+#include "PagePermissions.h"
 
 namespace {
 
@@ -118,6 +119,11 @@ void DiscordWindow::onPageLoaded() {
 
 void DiscordWindow::onPageReady() {
     app_.discordReady();
+}
+
+// Discord's own page gets the microphone, camera and notifications; see PagePermissions.
+std::optional<bool> DiscordWindow::onPermissionRequest(PagePermission permission, const std::string& pageUrl) {
+    return discordPermission(permission, pageUrl);
 }
 
 void DiscordWindow::onClosed() {

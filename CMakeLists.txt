@@ -41,6 +41,7 @@ add_executable(discord_webview
     src/Sha256.cpp
     src/UpdateCheck.cpp
     src/main.cpp
+    src/PagePermissions.cpp
     ${DW_HOST}
 )
 target_link_libraries(discord_webview PRIVATE webview_window)
@@ -54,4 +55,15 @@ if(WIN32)
     target_link_options(discord_webview PRIVATE -static -mwindows)
     # The program carries WebView2Loader.dll, which the library writes beside the executable at start: the release is the executable alone.
     webview_window_embed_loader(discord_webview)
+endif()
+
+# The unit tests of the logic the program keeps apart from the windows. Off by default: configure with -DDW_BUILD_TESTS=ON, then run
+# ctest in the build folder.
+option(DW_BUILD_TESTS "Build the unit tests" OFF)
+if(DW_BUILD_TESTS)
+    enable_testing()
+    add_executable(permission_policy_test tests/PagePermissions_test.cpp src/PagePermissions.cpp)
+    target_include_directories(permission_policy_test PRIVATE src)
+    target_link_libraries(permission_policy_test PRIVATE webview_window)
+    add_test(NAME permission_policy COMMAND permission_policy_test)
 endif()
