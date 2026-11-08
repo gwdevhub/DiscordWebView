@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 
+#include "AppIcon.h"
 #include "LoadingPage.h"
 #include "PageScript.h"
 #include "UpdateCheck.h"
@@ -67,6 +68,33 @@ void saveFrame(const SavedFrame& frame) {
     }
 }
 
+std::filesystem::path behaviourFile() {
+    return settingsFolder() / "behaviour.json";
+}
+
+// Whether minimising keeps the window in the taskbar. The default is to keep it there.
+bool loadKeepInTaskbar() {
+    try {
+        std::ifstream in(behaviourFile());
+        if (!in) {
+            return true;
+        }
+        return Json::parse(in).at("keepInTaskbar").get<bool>();
+    } catch (const std::exception&) {
+        return true;
+    }
+}
+
+void saveKeepInTaskbar(bool keepInTaskbar) {
+    try {
+        std::filesystem::create_directories(behaviourFile().parent_path());
+        std::ofstream out(behaviourFile(), std::ios::trunc);
+        out << Json{{"keepInTaskbar", keepInTaskbar}}.dump(2) << '\n';
+    } catch (const std::exception&) {
+        // The choice still applies until the program closes, so a failed save isn't worth stopping for.
+    }
+}
+
 // Opens a web address in the default browser, when it's an http or https address.
 void openInBrowser(const std::string& url) {
     if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
@@ -77,14 +105,18 @@ void openInBrowser(const std::string& url) {
 
 class DiscordWindow : public WebViewWindow {
 public:
-    DiscordWindow() : WebViewWindow(options()) {
+    DiscordWindow() : WebViewWindow(options()), keepInTaskbar_(loadKeepInTaskbar()) {
         auto& methods = handler();
         methods.on("moveDrag", [](WebViewWindow& window, const Json&, const Reply& reply) {
             window.beginMove();
             reply.result(nullptr);
         });
         methods.on("minimize", [](WebViewWindow& window, const Json&, const Reply& reply) {
-            window.minimize();
+            static_cast<DiscordWindow&>(window).minimiseToTaskbarOrTray();
+            reply.result(nullptr);
+        });
+        methods.on("setTaskbarWhenMinimised", [](WebViewWindow& window, const Json& args, const Reply& reply) {
+            static_cast<DiscordWindow&>(window).setKeepInTaskbar(args.at(0).get<bool>());
             reply.result(nullptr);
         });
         methods.on("toggleMaximize", [](WebViewWindow& window, const Json&, const Reply& reply) {
@@ -109,6 +141,31 @@ public:
     std::string html() const override { return loadingPage(Json(kDiscordUrl).dump()); }
     std::string title() const override { return "Discord"; }
 
+    // Puts the window's icon in the system tray, with a menu to show it or quit. Where the platform has no tray icon yet, minimising
+    // always uses the taskbar.
+    void showTray() {
+        trayShown_ = showTrayIcon(
+            "Discord", [this] { present(); },
+            {{"Show Discord", [this] { present(); }}, {"Quit", [this] { close(); }}});
+    }
+
+    // Minimise, as the bar's button asks for it. When minimising should go to the tray, the window is hidden instead, and its web
+    // view is kept so it comes back without loading Discord again.
+    void minimiseToTaskbarOrTray() {
+        if (!keepInTaskbar_ && trayShown_) {
+            hide();
+            keepWebView();
+        } else {
+            minimize();
+        }
+    }
+
+    // Saves whether minimising keeps the window in the taskbar. The page's choice takes effect at once.
+    void setKeepInTaskbar(bool keepInTaskbar) {
+        keepInTaskbar_ = keepInTaskbar;
+        saveKeepInTaskbar(keepInTaskbar);
+    }
+
     // Shows the update button on the bar, now and after each page load. Called on the window's thread.
     void showUpdate(const UpdateInfo& update) {
         updateUrl_ = update.url;
@@ -130,6 +187,7 @@ protected:
     // Puts the title bar back on each page the window loads, including after navigations, and the update button with it.
     void onPageLoaded() override {
         runScript(kPageScript);
+        runScript(behaviourScript());
         if (!updateUrl_.empty()) {
             runScript(updateScript());
         }
@@ -169,6 +227,12 @@ private:
         return options;
     }
 
+    // Tells the page the saved choice, and whether the tray icon is shown on this platform.
+    std::string behaviourScript() const {
+        return std::string("window.gwSetBehaviour && window.gwSetBehaviour(") + (keepInTaskbar_ ? "true" : "false") + ", " +
+               (trayShown_ ? "true" : "false") + ");";
+    }
+
     // The script that adds the update button to the bar, for the address of the newer release.
     std::string updateScript() const {
         return "window.gwShowUpdate && window.gwShowUpdate(" + Json(updateUrl_).dump() + ");";
@@ -177,6 +241,8 @@ private:
     bool frameRestored_ = false;
     std::optional<SavedFrame> lastSaved_;
     std::string updateUrl_;
+    bool keepInTaskbar_ = true;
+    bool trayShown_ = false;
 };
 
 }  // namespace
@@ -184,10 +250,12 @@ private:
 int main() {
     try {
         setApplicationName("Discord");
+        setApplicationIcon(kAppIconPng);
         initializeWindowing();
         DiscordWindow window;
         window.open();
         window.restoreFrame();
+        window.showTray();
         // Checks for a newer release in the background. The result comes back on the window's thread, and only while the window is
         // still running: the flag is cleared before the window goes.
         auto running = std::make_shared<std::atomic<bool>>(true);

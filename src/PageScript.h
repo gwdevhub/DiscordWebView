@@ -24,7 +24,8 @@ inline constexpr const char* kPageScript = R"JS(
     html { height: 100%; }
     body { margin-top: ${BAR}px !important; height: calc(100vh - ${BAR}px) !important; overflow: hidden !important; }
     #app-mount { height: calc(100vh - ${BAR}px) !important; }
-    #gw-titlebar { position: fixed; top: 0; left: 0; right: 0; height: ${BAR}px; z-index: 2147483647; display: flex;
+    /* One below the library's resize strips (2147483647), so they stay on top of the bar's top edge. */
+    #gw-titlebar { position: fixed; top: 0; left: 0; right: 0; height: ${BAR}px; z-index: 2147483646; display: flex;
       align-items: stretch; background: #1e1f22; color: #dbdee1; font: 12px sans-serif; user-select: none; cursor: default; }
     #gw-titlebar .gw-title { flex: 1; min-width: 0; display: flex; align-items: center; padding: 0 10px; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis; }
@@ -32,6 +33,18 @@ inline constexpr const char* kPageScript = R"JS(
     #gw-titlebar button:hover { background: #35373c; }
     #gw-titlebar button.gw-close:hover { background: #da373c; color: #fff; }
     #gw-titlebar svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1; }
+    #gw-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 2147483646; display: flex; align-items: center;
+      justify-content: center; background: rgba(0, 0, 0, 0.6); font: 14px sans-serif; color: #dbdee1; }
+    #gw-overlay.gw-hidden { display: none; }
+    #gw-overlay .gw-dialog { width: 380px; max-width: calc(100vw - 32px); padding: 20px 24px; border-radius: 6px; background: #313338;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+    #gw-overlay h2 { margin: 0 0 14px; font-size: 18px; color: #f2f3f5; }
+    #gw-overlay .gw-option { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+    #gw-overlay .gw-option input:disabled { cursor: default; }
+    #gw-overlay .gw-option:has(input:disabled) { color: #80848e; cursor: default; }
+    #gw-overlay p { margin: 10px 0 0; font-size: 13px; line-height: 1.4; color: #b5bac1; }
+    #gw-overlay .gw-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+    #gw-overlay .gw-actions button { padding: 8px 18px; border: 0; border-radius: 3px; background: #5865f2; color: #fff; cursor: pointer; }
   `;
   document.documentElement.appendChild(style);
 
@@ -56,10 +69,49 @@ inline constexpr const char* kPageScript = R"JS(
     b.addEventListener('click', () => post(method, []));
     bar.appendChild(b);
   };
+  // Opens the window behaviour dialog, which is built below.
+  const behaviour = document.createElement('button');
+  behaviour.type = 'button';
+  behaviour.id = 'gw-behaviour';
+  behaviour.setAttribute('aria-label', 'Window behaviour');
+  behaviour.title = 'Window behaviour';
+  behaviour.innerHTML = '<svg viewBox="0 0 10 10"><path d="M1.5 1.5h7v5h-7z M1 8.5h8"/></svg>';
+  bar.appendChild(behaviour);
   button('Minimise', 'M1 5.5h8', 'minimize');
   button('Maximise', 'M1.5 1.5h7v7h-7z', 'toggleMaximize');
   button('Close', 'M1.5 1.5l7 7M8.5 1.5l-7 7', 'close', 'gw-close');
   document.body.appendChild(bar);
+
+  // The window behaviour dialog. Ticked, minimising keeps the window in the taskbar; unticked, it hides the window to the system tray.
+  const overlay = document.createElement('div');
+  overlay.id = 'gw-overlay';
+  overlay.className = 'gw-hidden';
+  overlay.innerHTML = '<div class="gw-dialog" role="dialog" aria-modal="true" aria-labelledby="gw-behaviour-title">' +
+    '<h2 id="gw-behaviour-title">Window behaviour</h2>' +
+    '<label class="gw-option"><input type="checkbox" id="gw-taskbar"> Keep in the taskbar when minimised</label>' +
+    '<p id="gw-behaviour-note"></p>' +
+    '<div class="gw-actions"><button type="button" id="gw-behaviour-done">Done</button></div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  const taskbar = overlay.querySelector('#gw-taskbar');
+  const note = overlay.querySelector('#gw-behaviour-note');
+  const openBehaviour = () => { overlay.classList.remove('gw-hidden'); taskbar.focus(); };
+  const closeBehaviour = () => overlay.classList.add('gw-hidden');
+  behaviour.addEventListener('click', openBehaviour);
+  overlay.querySelector('#gw-behaviour-done').addEventListener('click', closeBehaviour);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeBehaviour(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !overlay.classList.contains('gw-hidden')) closeBehaviour();
+  });
+  taskbar.addEventListener('change', () => post('setTaskbarWhenMinimised', [taskbar.checked]));
+  // The host calls this on each page load with the saved choice, and whether a tray icon is available on this platform.
+  window.gwSetBehaviour = (keepInTaskbar, trayAvailable) => {
+    taskbar.checked = !!keepInTaskbar;
+    taskbar.disabled = !trayAvailable;
+    note.textContent = trayAvailable
+      ? 'When this is unticked, minimising hides the window to the system tray. Click its icon to bring the window back.'
+      : 'The system tray isn\'t available on this platform yet, so minimising always uses the taskbar.';
+  };
 
   // Adds a button to the bar that opens a newer release's page. The host calls it when a newer release exists, and again on each
   // page load, since the bar is rebuilt with the page.
