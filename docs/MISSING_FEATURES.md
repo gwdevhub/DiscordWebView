@@ -37,8 +37,8 @@ are the keys of that object. The main-process side of the channels (`bundle.js`)
 
 | Feature | Discord bridge | Status |
 | --- | --- | --- |
-| Desktop notifications | `ipc`: `NOTIFICATION_SHOW`, `NOTIFICATION_CLOSE`, `NOTIFICATIONS_*` | Partial: the page's Notification API is allowed for discord.com, so `Notification.permission` is `granted`. Nothing from the `ipc` channels is used, so the notifications are the WebView's own. |
-| Unread badge on the taskbar or dock | `ipc`: `APP_SET_BADGE_COUNT`, `APP_DOCK_SET_BADGE`, `APP_DOCK_BOUNCE` | Missing. |
+| Desktop notifications | `ipc`: `NOTIFICATION_SHOW`, `NOTIFICATION_CLOSE`, `NOTIFICATIONS_*` | Done on Linux: the page's Notification API is allowed for discord.com, and WebKitGTK presents the notification to the desktop (`WebViewWindow/tests/linux_notification_test.sh` watches the session bus for it). Windows: not checked. The `ipc` channels aren't used; WebKit and WebView2 present the notifications themselves. |
+| Unread badge on the taskbar or dock | `ipc`: `APP_SET_BADGE_COUNT`, `APP_DOCK_SET_BADGE`, `APP_DOCK_BOUNCE` | Partial: Discord's title carries the count, `(3) Discord`, and the custom title bar shows it. No taskbar or dock badge. |
 | Tray icon state (unread, mute) | `ipc`: `SYSTEM_TRAY_SET_STATES`, `SYSTEM_TRAY_SET_ICON`, `SYSTEM_TRAY_SET_STRINGS` | Missing. The tray icon exists, but Discord doesn't update it. |
 | Taskbar progress and flash | `window.setProgressBar`, `window.flashFrame` | Missing. |
 | Windows taskbar thumbnail buttons | `thumbar.setThumbarButtons` | Missing (Windows only). |
@@ -58,8 +58,8 @@ are the keys of that object. The main-process side of the channels (`bundle.js`)
 
 | Feature | Discord bridge | Status |
 | --- | --- | --- |
-| Downloads saved to disk | (WebView download events) | Missing. Downloads aren't handled at all. |
-| Open and save dialogs | `fileManager.showOpenDialog`, `saveWithDialog`, `showItemInFolder` | Missing. |
+| Downloads saved to disk | (WebView download events) | Done: saved to the Downloads folder under the suggested name, never over an existing file (`tests/Downloads_test.cpp`; `WebViewWindow/tests/linux_download_test.sh` and `windows_download_test.ps1`). |
+| Open and save dialogs | `fileManager.showOpenDialog`, `saveWithDialog`, `showItemInFolder` | Missing. The page can't reach a host dialog yet: see the bridge plan below. |
 | Native clipboard (images, files, cut) | `clipboard.copyImage`, `copyFile`, `cut`, `paste`, `read` | Missing. The web clipboard API is untested. |
 
 ## Settings, storage and system
@@ -91,9 +91,12 @@ are the keys of that object. The main-process side of the channels (`bundle.js`)
 
 ## Plan
 
-1. Permissions for microphone, camera and notifications, by a hook in WebViewWindow (done; the hook is only in the local checkout so far).
-2. Downloads and the save dialog (`fileManager`).
+1. Permissions for microphone, camera and notifications, by a hook in WebViewWindow. Done.
+2. Downloads. Done. A save dialog would need a page-to-host call, which is item 6.
 3. Settings and `safeStorage` through the host.
 4. Badges and tray state from the page, through a bridge the page can call.
 5. Voice and video. Needs a decision: the engine is a Node addon, so this either waits for a different approach or stays
    out of scope.
+6. A bridge the page can call. Most of the features above need the web client to call `DiscordNative`, and it only does so when
+   the object exists. Providing it is a design decision: it would switch the web client into desktop mode, and each call it makes
+   would then need a real answer. This needs a decision before any more of the bridge is built.
