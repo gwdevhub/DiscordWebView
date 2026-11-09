@@ -38,7 +38,7 @@ are the keys of that object. The main-process side of the channels (`bundle.js`)
 | Feature | Discord bridge | Status |
 | --- | --- | --- |
 | Desktop notifications | `ipc`: `NOTIFICATION_SHOW`, `NOTIFICATION_CLOSE`, `NOTIFICATIONS_*` | Done on Linux: the page's Notification API is allowed for discord.com, and WebKitGTK presents the notification to the desktop (`WebViewWindow/tests/linux_notification_test.sh` watches the session bus for it). Windows: not checked. The `ipc` channels aren't used; WebKit and WebView2 present the notifications themselves. |
-| Unread badge on the taskbar or dock | `ipc`: `APP_SET_BADGE_COUNT`, `APP_DOCK_SET_BADGE`, `APP_DOCK_BOUNCE` | Partial: Discord's title carries the count, `(3) Discord`, and the custom title bar shows it. No taskbar or dock badge. |
+| Unread badge on the taskbar or dock | `app.setBadgeCount` (`APP_SET_BADGE_COUNT`), `APP_DOCK_SET_BADGE`, `APP_DOCK_BOUNCE` | Missing. The desktop app sets a Windows taskbar overlay from the unread count: `win.setOverlayIcon(appIcons[n], "N notifications")` with one numbered icon for counts 1 to 10, cleared at zero. It also calls `app.setBadgeCount`. This program sets neither. The count is shown only in the custom title bar, from `document.title`. |
 | Tray icon state (unread, mute) | `ipc`: `SYSTEM_TRAY_SET_STATES`, `SYSTEM_TRAY_SET_ICON`, `SYSTEM_TRAY_SET_STRINGS` | Missing. The tray icon exists, but Discord doesn't update it. |
 | Taskbar progress and flash | `window.setProgressBar`, `window.flashFrame` | Missing. |
 | Windows taskbar thumbnail buttons | `thumbar.setThumbarButtons` | Missing (Windows only). |
