@@ -2,15 +2,20 @@
 // itself, which already loads GTK.
 
 #include <spawn.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
@@ -19,10 +24,122 @@
 #include <thread>
 #include <vector>
 
+#include "Host.h"
 #include "UpdateCheck.h"
 #include "WebViewWindow.h"
 
 extern char** environ;
+
+namespace {
+
+// The socket a running copy listens on, in the settings folder.
+std::filesystem::path showSocketPath() {
+    return settingsFolder() / "discord-webview.sock";
+}
+
+// The listening socket, so stopListeningForShowRequests can end its accept. -1 when this copy isn't listening.
+std::atomic<int> listeningSocket{-1};
+
+// The address for the socket path, or false when the path is too long for one.
+bool showSocketAddress(const std::string& path, sockaddr_un& address) {
+    if (path.size() >= sizeof(address.sun_path)) {
+        return false;
+    }
+    address = sockaddr_un{};
+    address.sun_family = AF_UNIX;
+    std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
+    return true;
+}
+
+}  // namespace
+
+bool forwardShowRequest() {
+    sockaddr_un address{};
+    if (!showSocketAddress(showSocketPath().string(), address)) {
+        return false;
+    }
+    const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) {
+        return false;
+    }
+    bool sent = connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+    if (sent) {
+        static const char request[] = "show\n";
+        sent = send(fd, request, sizeof(request) - 1, MSG_NOSIGNAL) == static_cast<ssize_t>(sizeof(request) - 1);
+    }
+    if (sent) {
+        // The running copy answers "ok" once it has taken the request. Without that, nothing is listening, and this copy carries on.
+        timeval wait{2, 0};
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof(wait));
+        char reply[8] = {};
+        const ssize_t received = recv(fd, reply, sizeof(reply) - 1, 0);
+        sent = received >= 2 && std::string(reply, static_cast<std::size_t>(received)).rfind("ok", 0) == 0;
+    }
+    close(fd);
+    return sent;
+}
+
+void listenForShowRequests(std::function<void()> handle) {
+    const std::filesystem::path path = showSocketPath();
+    sockaddr_un address{};
+    if (!showSocketAddress(path.string(), address)) {
+        std::fprintf(stderr, "could not listen for other starts: the path is too long\n");
+        return;
+    }
+    std::error_code ignored;
+    std::filesystem::create_directories(path.parent_path(), ignored);
+    const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) {
+        return;
+    }
+    // Nothing answered forwardShowRequest, so a socket left by a copy that exited is replaced.
+    unlink(path.c_str());
+    if (bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 || listen(fd, 8) != 0) {
+        std::fprintf(stderr, "could not listen for other starts\n");
+        close(fd);
+        return;
+    }
+    listeningSocket = fd;
+    std::thread([fd, handle = std::move(handle)] {
+        for (;;) {
+            const int client = accept4(fd, nullptr, nullptr, SOCK_CLOEXEC);
+            if (client < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                break;
+            }
+            // A client that connects and says nothing gives up after two seconds, so it can't hold up the next one.
+            timeval wait{2, 0};
+            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof(wait));
+            std::string line;
+            char buffer[64];
+            ssize_t received = 0;
+            while (line.find('\n') == std::string::npos && line.size() < sizeof(buffer) &&
+                   (received = recv(client, buffer, sizeof(buffer), 0)) > 0) {
+                line.append(buffer, static_cast<std::size_t>(received));
+            }
+            const bool show = line == "show\n";
+            if (show) {
+                send(client, "ok\n", 3, MSG_NOSIGNAL);
+            }
+            close(client);
+            if (show) {
+                handle();
+            }
+        }
+        close(fd);
+    }).detach();
+}
+
+void stopListeningForShowRequests() {
+    const int fd = listeningSocket.exchange(-1);
+    if (fd >= 0) {
+        // Ends the accept in the listener, which then closes the socket.
+        shutdown(fd, SHUT_RDWR);
+    }
+    unlink(showSocketPath().c_str());
+}
 
 void showError(const std::string& message) {
     std::fprintf(stderr, "%s\n", message.c_str());

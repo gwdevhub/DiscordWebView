@@ -81,6 +81,12 @@ void Application::run() {
     runEventLoop();
 }
 
+void Application::showDiscord() {
+    if (discord_) {
+        discord_->present();
+    }
+}
+
 void Application::showTray() {
     trayShown_ = showTrayIcon(
         "Discord", [this] { discord_->present(); },

@@ -46,6 +46,9 @@ public:
     // tray icon, checks for an update in the background, and runs until the Discord window closes.
     void run();
 
+    // Brings the Discord window to the front, for a later start that was handed to this copy.
+    void showDiscord();
+
     // Settings. The choices are saved as they change.
     bool keepInTaskbar() const { return keepInTaskbar_; }
     bool trayShown() const { return trayShown_; }

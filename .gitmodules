@@ -1,0 +1,3 @@
+[submodule "WebViewWindow"]
+	path = WebViewWindow
+	url = https://github.com/gwdevhub/WebViewWindow.git
