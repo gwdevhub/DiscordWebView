@@ -41,6 +41,7 @@ add_executable(discord_webview
     src/Sha256.cpp
     src/UpdateCheck.cpp
     src/main.cpp
+    src/Downloads.cpp
     src/PagePermissions.cpp
     ${DW_HOST}
 )
@@ -66,4 +67,8 @@ if(DW_BUILD_TESTS)
     target_include_directories(permission_policy_test PRIVATE src)
     target_link_libraries(permission_policy_test PRIVATE webview_window)
     add_test(NAME permission_policy COMMAND permission_policy_test)
+
+    add_executable(downloads_test tests/Downloads_test.cpp src/Downloads.cpp)
+    target_include_directories(downloads_test PRIVATE src)
+    add_test(NAME downloads COMMAND downloads_test)
 endif()
