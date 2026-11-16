@@ -5,8 +5,8 @@ contains none of Discord's code: the page is loaded from discord.com at run time
 
 ## Build
 
-Needs Docker. The WebViewWindow checkout is expected next to this one (`../WebViewWindow`); point `WEBVIEW_WINDOW_DIR` at another
-checkout if it lives elsewhere.
+Needs Docker. WebViewWindow is a git submodule in `WebViewWindow/`, so clone with `--recurse-submodules` (or run
+`git submodule update --init` after cloning). Point `WEBVIEW_WINDOW_DIR` at another checkout if it lives elsewhere.
 
     ./build.sh [linux|windows|all]
 

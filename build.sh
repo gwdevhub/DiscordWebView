@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the program in Docker into bin/: build.sh [linux|windows|all]
-# WebViewWindow is read from WEBVIEW_WINDOW_DIR, which defaults to a checkout beside this one.
+# WebViewWindow is read from WEBVIEW_WINDOW_DIR, which defaults to the submodule in this repo's WebViewWindow folder.
 set -euo pipefail
 
 target="${1:-all}"
@@ -12,9 +12,9 @@ case "$target" in
 esac
 
 root="$(cd "$(dirname "$0")" && pwd)"
-webview_window_dir="${WEBVIEW_WINDOW_DIR:-$root/../WebViewWindow}"
+webview_window_dir="${WEBVIEW_WINDOW_DIR:-$root/WebViewWindow}"
 if [ ! -f "$webview_window_dir/CMakeLists.txt" ]; then
-    echo "WebViewWindow isn't at $webview_window_dir. Check it out there, or set WEBVIEW_WINDOW_DIR to its folder." >&2
+    echo "WebViewWindow isn't at $webview_window_dir. Run: git submodule update --init, or set WEBVIEW_WINDOW_DIR to its folder." >&2
     exit 1
 fi
 

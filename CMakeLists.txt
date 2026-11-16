@@ -5,8 +5,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# WebViewWindow is a sibling checkout by default. Point this at another checkout if it lives elsewhere.
-set(WEBVIEW_WINDOW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../WebViewWindow" CACHE PATH "Path to the WebViewWindow checkout")
+# WebViewWindow is the git submodule in this folder by default. Point this at another checkout if it lives elsewhere.
+set(WEBVIEW_WINDOW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/WebViewWindow" CACHE PATH "Path to the WebViewWindow checkout")
 
 set(WEBVIEW_WINDOW_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 add_subdirectory("${WEBVIEW_WINDOW_DIR}" WebViewWindow)
