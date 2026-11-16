@@ -1,6 +1,3 @@
 build/
 bin/
 .idea/
-
-# WebViewWindow checked out beside this repo in CI, which is not part of this repo.
-/WebViewWindow/
