@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -11,7 +12,9 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <thread>
 
+#include "Host.h"
 #include "UpdateCheck.h"
 #include "WebViewWindow.h"
 
@@ -29,7 +32,105 @@ std::wstring toWide(const std::string& text) {
     return wide;
 }
 
+// The pipe a running copy listens on. It's per user, so each user's copy takes that user's starts.
+std::wstring showPipeName() {
+    wchar_t user[256] = {};
+    DWORD size = sizeof(user) / sizeof(user[0]);
+    std::wstring name = L"\\\\.\\pipe\\DiscordWebView-";
+    if (GetUserNameW(user, &size)) {
+        name += user;
+    }
+    return name;
+}
+
+// Set by stopListeningForShowRequests. A listener that finds it set closes its pipe and ends.
+std::atomic<bool> listenerStopped{false};
+
+// One line, up to its newline. False when the pipe closes or fails first.
+bool readShowLine(HANDLE pipe, std::string& line) {
+    char buffer[64];
+    while (line.find('\n') == std::string::npos && line.size() < sizeof(buffer)) {
+        DWORD read = 0;
+        if (!ReadFile(pipe, buffer, sizeof(buffer), &read, nullptr) || read == 0) {
+            return false;
+        }
+        line.append(buffer, read);
+    }
+    return true;
+}
+
 }  // namespace
+
+bool forwardShowRequest() {
+    const std::wstring name = showPipeName();
+    // No pipe means no running copy, and a busy one is waited for.
+    if (!WaitNamedPipeW(name.c_str(), 2000)) {
+        return false;
+    }
+    HANDLE pipe = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    // The running copy answers "ok" once it has taken the request. Without that, nothing is listening, and this copy carries on.
+    static const char request[] = "show\n";
+    DWORD written = 0;
+    bool sent = WriteFile(pipe, request, sizeof(request) - 1, &written, nullptr) && written == sizeof(request) - 1;
+    std::string reply;
+    sent = sent && readShowLine(pipe, reply) && reply.rfind("ok", 0) == 0;
+    CloseHandle(pipe);
+    return sent;
+}
+
+void listenForShowRequests(std::function<void()> handle) {
+    const std::wstring name = showPipeName();
+    std::thread([name, handle = std::move(handle)] {
+        bool first = true;
+        for (;;) {
+            // Only the first pipe can be made by this copy; a copy that finds it taken is listened to by the one that made it.
+            const DWORD openMode = PIPE_ACCESS_DUPLEX | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0);
+            HANDLE pipe = CreateNamedPipeW(name.c_str(), openMode, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES,
+                                           512, 512, 2000, nullptr);
+            if (pipe == INVALID_HANDLE_VALUE) {
+                if (first) {
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+            first = false;
+            // Checked once the pipe exists, so the connection that wakes a stopped listener finds it.
+            if (listenerStopped) {
+                CloseHandle(pipe);
+                break;
+            }
+            if (!ConnectNamedPipe(pipe, nullptr) && GetLastError() != ERROR_PIPE_CONNECTED) {
+                CloseHandle(pipe);
+                continue;
+            }
+            std::string line;
+            const bool show = readShowLine(pipe, line) && line == "show\n";
+            if (show) {
+                DWORD written = 0;
+                WriteFile(pipe, "ok\n", 3, &written, nullptr);
+                FlushFileBuffers(pipe);
+            }
+            DisconnectNamedPipe(pipe);
+            CloseHandle(pipe);
+            if (show) {
+                handle();
+            }
+        }
+    }).detach();
+}
+
+void stopListeningForShowRequests() {
+    listenerStopped = true;
+    // A listener waiting for a start is woken by this connection, and then sees that it's stopped.
+    HANDLE wake = CreateFileW(showPipeName().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (wake != INVALID_HANDLE_VALUE) {
+        CloseHandle(wake);
+    }
+}
 
 void showError(const std::string& message) {
     std::fprintf(stderr, "%s\n", message.c_str());
